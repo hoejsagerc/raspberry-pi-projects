@@ -1,0 +1,9 @@
+- hosts: masters:workers
+  become: true
+  tasks:
+
+  - name: install nfs-common
+    apt:
+      name: nfs-common
+      state: present
+      update_cache: true

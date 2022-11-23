@@ -1,0 +1,53 @@
+- hosts: all
+  become: true
+  vars:
+    - username: pi
+  tasks:
+
+  - name: Update and Upgrade the cluster node
+    apt:
+      upgrade: yes
+      update_cache: yes
+
+  - name: install fail2ban
+    apt:
+      name: fail2ban
+      state: present
+      update_cache: true
+
+  - name: Copy fail2ban.local config files
+    copy:
+      src: config-files/fail2ban.local
+      dest: /etc/fail2ban/fail2ban.local
+
+  - name: Copy jail.local config files
+    copy:
+      src: config-files/jail.local
+      dest: /etc/fail2ban/jail.local
+
+  - name: Copy ssh banner
+    copy:
+      src: config-files/sshd_banner
+      dest: /etc/ssh/ssh_banner
+
+  - name: Copy sshd config file
+    copy:
+      src: config-files/sshd_config
+      dest: /etc/ssh/sshd_config
+
+  - name: Copy motd banner
+    copy:
+      src: config-files/motd_banner
+      dest: /etc/motd
+
+  - name: Restart fail2ban service
+    systemd:
+      state: restarted
+      daemon_reload: true
+      name: fail2ban
+
+  - name: Restart sshd service
+    systemd:
+      state: restarted
+      daemon_reload: true
+      name: sshd

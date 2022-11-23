@@ -1,0 +1,187 @@
+- hosts: raspberrys
+  become: true
+  tasks:
+
+# ----------- Base host configurations -------------- #
+# User configurations
+  - name: Adding ansible user
+    user:
+      name: "{{ ansibleuser }}"
+      create_home: yes
+      comment: "Created with ansible"
+      password: "{{ ansiblepassword | password_hash('sha512') }}"
+      update_password: on_create
+      groups: adm,sudo
+      shell: /bin/bash
+  
+  - name: Creating SSH folder
+    file:
+      path: "/home/{{ ansibleuser }}/.ssh"
+      owner: "{{ ansibleuser }}"
+      state: directory
+
+  - name: Creating authorized_keys file
+    file:
+      path:  "/home/{{ ansibleuser }}/.ssh/authorized_keys"
+      owner: "{{ ansibleuser }}"
+      state: touch
+
+  - name: Copy ssh key to user folder
+    copy:
+      src: files/ansible.pub
+      dest: "/home/{{ ansibleuser }}/.ssh/authorized_keys"
+  
+  - name: Adding user
+    user:
+      name: "{{ username }}"
+      create_home: yes
+      comment: "Created with ansible"
+      password: "{{ password | password_hash('sha512') }}"
+      update_password: on_create
+      groups: adm,sudo
+      shell: /bin/bash
+
+  - name: Creating SSH folder
+    file:
+      path: "/home/{{ username }}/.ssh"
+      owner: "{{ username }}"
+      state: directory
+
+  - name: Creating authorized_keys file
+    file:
+      path:  "/home/{{ username }}/.ssh/authorized_keys"
+      owner: "{{ username }}"
+      state: touch
+
+  - name: Copy ssh key to user folder
+    copy:
+      src: files/user.pub
+      dest: "/home/{{ username }}/.ssh/authorized_keys"
+
+  - name: Disabling default user from logging in
+    user:
+      name: "{{ defaultuser }}"
+      state: present
+      password_lock: true
+      shell: "/sbin/nologin"
+
+
+# Packages configurations
+  - name: Update and Upgrade apt packages
+    apt:
+      upgrade: yes
+      update_cache: yes
+
+  - name: install fail2ban
+    apt:
+      name: fail2ban
+      state: present
+      update_cache: true
+
+  - name: install nfs-common
+    apt:
+      name: nfs-common
+      state: present
+      update_cache: true
+
+  - name: Install UIDMAP
+    apt:
+      name: uidmap
+      state: present
+      cache_valid_time: 3600
+      update_cache: true
+
+  - name: Install python3-pip
+    apt:
+      name: python3-pip
+      state: present
+      cache_valid_time: 3600
+      update_cache: true
+
+
+# Copy Config Files
+  - name: Copy fail2ban.local config files
+    copy:
+      src: files/fail2ban.local
+      dest: /etc/fail2ban/fail2ban.local
+
+  - name: Copy jail.local config files
+    copy:
+      src: files/jail.local
+      dest: /etc/fail2ban/jail.local
+
+  - name: Copy ssh banner
+    copy:
+      src: files/sshd_banner
+      dest: /etc/ssh/sshd_banner
+
+  - name: Copy sshd config file
+    copy:
+      src: files/sshd_config
+      dest: /etc/ssh/sshd_config
+
+
+# Restarting Services
+  - name: Restart fail2ban service
+    systemd:
+      state: restarted
+      daemon_reload: true
+      name: fail2ban
+
+  - name: Restart sshd service
+    systemd:
+      state: restarted
+      daemon_reload: true
+      name: sshd
+
+
+
+# ----------- Configuring k3s Cluster -------------- #
+- hosts: masters:workers
+  become: true
+  tasks:
+
+  - name: Setting hostname for all nodes
+    shell: "hostnamectl set-hostname {{ inventory_hostname }}"
+
+  - name: Updating the OS
+    apt:
+      upgrade: yes
+      update_cache: yes
+
+  - name: Install Docker
+    apt:
+      name: docker.io
+      state: present
+      update_cache: true
+
+  - name: adding c_group functionality to cmdling.txt
+    shell: "sed -i '$ s/$/ cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1 swapaccount=1/' /boot/firmware/cmdline.txt"
+
+  - name: Rebooting the nodes
+    reboot:
+
+  - name: Wait for hosts to come back online
+    wait_for_connection:
+
+
+- hosts: masters
+  become: true
+  tasks:
+
+  - name: Install k3s on master01
+    shell: "curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE='644' K3S_TOKEN={{ k3stoken }} sh -s - server --cluster-init --disable servicelb --docker"
+    when: "'master01' in inventory_hostname"
+
+  - name: Adding k3s nodes to the cluster
+    shell: "curl -sfL https://get.k3s.io |  K3S_TOKEN={{ k3stoken }} sh -s - server --server https://{{ master01_ip }}:6443 --no-deploy servicelb --docker"
+    when: "'master02' in inventory_hostname"
+
+
+- hosts: workers
+  become: true
+  tasks:
+
+  - name: Adding k3s nodes to the cluster
+    shell: "curl -sfL https://get.k3s.io | K3S_URL=https://{{ master01_ip }}:6443 K3S_TOKEN={{ k3stoken }} sh -s - --docker"
+    register: result

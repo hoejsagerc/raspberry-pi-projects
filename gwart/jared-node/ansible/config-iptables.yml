@@ -1,0 +1,23 @@
+- hosts: all
+  become: true
+  vars:
+    - username: pi
+  tasks:
+
+  - name: install iptables
+    apt:
+      name: iptables
+      state: present
+      update_cache: true
+
+  - name: configure iptables for k3s
+    command: "iptables -F" 
+   
+  - name: configure iptables for k3s    
+    command: "sudo update-alternatives --set iptables /usr/sbin/iptables-legacy"
+      
+  - name: configure iptables for k3s    
+    command: "sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy"
+      
+  - name: rebooting the node
+    reboot:
